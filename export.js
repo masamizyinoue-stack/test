@@ -1671,7 +1671,7 @@ function _hpPdfAdvance(w,angleDeg){
 // V1_183: _collectInto182(配列)を渡すと、個別保存(pdf.save)を行わず
 // {fname,blob}をこの配列にpushして終わる「収集モード」で動作する。
 // 複数ファイル一括書出(exportHybridPDFBatch183)から使う。理由は下記参照
-async function exportHybridPDF(_collectInto182){
+async function exportHybridPDF(_collectInto182,rangeRect238){
   const btn=document.getElementById('hybridPDFBtn');
   btn.disabled=true;
   if(!_collectInto182) showGuide('HD-PDFを生成中...');
@@ -1682,19 +1682,27 @@ async function exportHybridPDF(_collectInto182){
     // ── 1. バウンディングボックス（現行PDFと同じロジック）──
     var _hMnX=Infinity,_hMnY=Infinity,_hMxX=-Infinity,_hMxY=-Infinity;
     function _hExp(x,y){if(!isFinite(x)||!isFinite(y))return;if(x<_hMnX)_hMnX=x;if(y<_hMnY)_hMnY=y;if(x>_hMxX)_hMxX=x;if(y>_hMxY)_hMxY=y;}
-    if(doc){
-      for(const e of doc.sen){_hExp(e.x1,e.y1);_hExp(e.x2,e.y2);}
-      for(const e of doc.enko){const r=e.rx||e.r||0;_hExp(e.cx-r,e.cy-r);_hExp(e.cx+r,e.cy+r);}
-      for(const e of (doc.ten||[])){_hExp(e.x,e.y);}
-      for(const e of (doc.moji||[])){_hExp(e.x,e.y);}
-      for(const e of (doc.solid||[])){for(const p of e.pts)_hExp(p.x,p.y);}
-    }
-    if(typeof pdfImage!=='undefined'&&pdfImage){_hExp(pdfImage.wx,pdfImage.wy);_hExp(pdfImage.wx+pdfImage.ww,pdfImage.wy-pdfImage.wh);}
-    for(const img of (typeof images!=='undefined'?images:[])){_hExp(img.wx,img.wy);_hExp(img.wx+img.ww,img.wy-img.wh);}
-    for(const s of strokes)for(const p of s.pts)_hExp(p.x,p.y);
-    for(const d of dims){
-      for(const l of(d.lines||[])){_hExp(l.x1,l.y1);_hExp(l.x2,l.y2);}
-      if(d.tx!=null&&d.ty!=null)_hExp(d.tx,d.ty);
+    // V2_38: 「範囲指定書出」の場合、ユーザーがドラッグで指定した矩形(rangeRect238=
+    // {x1,y1,x2,y2}、ワールド座標)をそのままバウンディングボックスとして使う。
+    // データ全体を走査する従来ロジックは通さない(=「全体書出」は完全に従来通り)
+    if(rangeRect238){
+      _hMnX=rangeRect238.x1; _hMnY=rangeRect238.y1;
+      _hMxX=rangeRect238.x2; _hMxY=rangeRect238.y2;
+    }else{
+      if(doc){
+        for(const e of doc.sen){_hExp(e.x1,e.y1);_hExp(e.x2,e.y2);}
+        for(const e of doc.enko){const r=e.rx||e.r||0;_hExp(e.cx-r,e.cy-r);_hExp(e.cx+r,e.cy+r);}
+        for(const e of (doc.ten||[])){_hExp(e.x,e.y);}
+        for(const e of (doc.moji||[])){_hExp(e.x,e.y);}
+        for(const e of (doc.solid||[])){for(const p of e.pts)_hExp(p.x,p.y);}
+      }
+      if(typeof pdfImage!=='undefined'&&pdfImage){_hExp(pdfImage.wx,pdfImage.wy);_hExp(pdfImage.wx+pdfImage.ww,pdfImage.wy-pdfImage.wh);}
+      for(const img of (typeof images!=='undefined'?images:[])){_hExp(img.wx,img.wy);_hExp(img.wx+img.ww,img.wy-img.wh);}
+      for(const s of strokes)for(const p of s.pts)_hExp(p.x,p.y);
+      for(const d of dims){
+        for(const l of(d.lines||[])){_hExp(l.x1,l.y1);_hExp(l.x2,l.y2);}
+        if(d.tx!=null&&d.ty!=null)_hExp(d.tx,d.ty);
+      }
     }
     if(!isFinite(_hMnX)){showGuide('描画データがありません',2000);return true;} // V1_169: 閉じる連携用(データなし=出力不要なので閉じる処理は継続)
 
@@ -1739,6 +1747,18 @@ async function exportHybridPDF(_collectInto182){
     // 白背景
     pdf.setFillColor(255,255,255);
     pdf.rect(0,0,pageMM_W,pageMM_H,'F');
+
+    // V2_38: 「範囲指定書出」の場合、範囲の境界をまたぐ線・文字等がページ外まで
+    // 突き出て描画されるのを防ぐため、ページ全体でクリップする。「全体書出」時は
+    // バウンディングボックス自体がデータ全体なのではみ出ることが無く、常時適用しても
+    // 実害はないため分岐せず常に行う(jsPDFがclip未対応の環境向けにフォールバックあり)
+    if(typeof pdf.clip==='function'){
+      try{
+        pdf.rect(0,0,pageMM_W,pageMM_H);
+        pdf.clip();
+        if(typeof pdf.discardPath==='function') pdf.discardPath();
+      }catch(clipErr238){ console.warn('[HybridPDF] clip未対応のためスキップ',clipErr238); }
+    }
 
     // 色設定ヘルパー（e.color は {r,g,b} オブジェクト。白背景用に近白色は黒に変換）
     function _setPdfColor(col){
@@ -2061,7 +2081,8 @@ async function exportHybridPDF(_collectInto182){
     }
 
     // ── 10. 保存 ──
-    const fname=(currentFileName||'drawing').replace(/\.[^.]+$/,'')+'_hd.pdf';
+    // V2_38: 範囲指定書出の場合はファイル名で区別できるようにする
+    const fname=(currentFileName||'drawing').replace(/\.[^.]+$/,'')+(rangeRect238?'_hd_範囲':'_hd')+'.pdf';
     if(_collectInto182){
       // V1_183: 収集モード。個別に保存せずBlobを呼び出し元へ渡す
       // (iOS Safari等は1回のユーザー操作につき1回しか保存/共有を許可しないため、
@@ -2355,5 +2376,25 @@ document.getElementById('hybridPDFBtn').addEventListener('click',function(){
     }
     return;
   }
-  exportHybridPDF();
+  // V2_38: DXFの場合、「全体書出」か「範囲指定書出」かを選べるようにする。
+  // ダイアログ関数が無い場合は従来通り全体書出のみ行う(フォールバック、既存動作維持)
+  if(typeof _showHdPdfScopeDialog238==='function'){
+    _showHdPdfScopeDialog238(document.getElementById('hybridPDFBtn'),function(scope){
+      if(scope==='range'){
+        if(!doc&&!(typeof pdfImage!=='undefined'&&pdfImage)){showGuide('図面がありません',1500);return;}
+        if(typeof resetToolStates==='function') resetToolStates();
+        if(typeof resetSW==='function') resetSW();
+        if(window.SW){
+          window.SW.active=true;
+          window.SW.purpose='hdpdf';
+        }
+        document.querySelectorAll('.tool-btn').forEach(function(b){b.classList.remove('active');});
+        showGuide('HD-PDF範囲指定：出力したい範囲を対角にドラッグしてください',0);
+      } else {
+        exportHybridPDF();
+      }
+    });
+  } else {
+    exportHybridPDF();
+  }
 });

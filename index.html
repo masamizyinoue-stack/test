@@ -1116,7 +1116,7 @@ body.settings-open #settingsPanel{transform:translateX(0)}
   <div class="sp-header">
     <span class="sp-title">設定</span>
     <!-- V0_143: バージョン表示はここに一本化。id="ver-label"でJSがAPP_VERSIONを自動反映（下部の重複表示は削除済み） -->
-    <span id="ver-label">V2_37</span>
+    <span id="ver-label">V2_38</span>
     <button class="sp-close" id="settingsClose">✕</button>
   </div>
   <button id="openFileBtnMain">
@@ -1555,27 +1555,27 @@ body.settings-open #settingsPanel{transform:translateX(0)}
 
 <!-- V0_148.1: 全ローカルJSに ?v= を付与（バージョンアップ時にSafari/PWAが旧JSキャッシュを使い
      新HTMLと混在して計測不能等が起きるバグの修正。以後のバージョンアップでは必ずv=も更新すること） -->
-<script src="layer.js?v=237"></script>
-<script src="viewer.js?v=237"></script>
-<script src="utils.js?v=237"></script>
-<script src="ui.js?v=237"></script>
-<script src="dialog.js?v=237"></script>
-<script src="storage.js?v=237"></script>
-<script src="fonts/NotoSansJP.js?v=237"></script>
-<script src="export.js?v=237"></script>
-<script src="tool.js?v=237"></script>
-<script src="verify.js?v=237"></script>
+<script src="layer.js?v=238"></script>
+<script src="viewer.js?v=238"></script>
+<script src="utils.js?v=238"></script>
+<script src="ui.js?v=238"></script>
+<script src="dialog.js?v=238"></script>
+<script src="storage.js?v=238"></script>
+<script src="fonts/NotoSansJP.js?v=238"></script>
+<script src="export.js?v=238"></script>
+<script src="tool.js?v=238"></script>
+<script src="verify.js?v=238"></script>
 <!-- V1_195: SHXストローク文字認識(独立モジュール)。参照グリフデータ→認識エンジンの順で読む -->
-<script src="shxGlyphs.js?v=237"></script>
-<script src="stroke-text.js?v=237"></script>
+<script src="shxGlyphs.js?v=238"></script>
+<script src="stroke-text.js?v=238"></script>
 <!-- V1_78: PC(マウス・キーボード)向けの追加機能。iPadのタッチ/Apple Pencil操作には
      影響しない「追加のみ」の実装（詳細はpc.js冒頭コメント参照） -->
-<script src="pc.js?v=237"></script>
+<script src="pc.js?v=238"></script>
 <!-- V1_01: 図面ごとの注記(strokes/dims)をSupabaseへ自動保存・自動復元するための追加 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="supabase-sync.js?v=237"></script>
+<script src="supabase-sync.js?v=238"></script>
 <script>
-const APP_VERSION = 'V2_37';
+const APP_VERSION = 'V2_38';
 
 // =========================================================
 // グローバル状態
@@ -5910,9 +5910,14 @@ window.resetLLEN=resetLLEN;
 
 // ─ 状態: 矩形範囲選択（V0_153.1: M_Viewer同様、1回の連続ドラッグで矩形を確定） ─
 // down=p1確定+ドラッグ開始, move=p2追従（プレビュー更新）, up=p2確定→サブ窓作成
-var SW={active:false, penDown:false, p1:null, cur:null};
+// V2_38: purposeフィールドを追加。既存の「サブ窓作成」(purpose='subwindow')に加え、
+// HD-PDFの「範囲指定書出」(purpose='hdpdf')でもこの矩形選択の仕組みをそのまま
+// 流用する。ドラッグ操作・イベント配線(tool.js側のSW.active判定)は完全に共通のため、
+// tool.js側は一切変更せずに済む。purposeの値によってhandleUp内の確定処理だけを
+// 分岐させる
+var SW={active:false, penDown:false, p1:null, cur:null, purpose:'subwindow'};
 function resetSW(){
-  SW.active=false; SW.penDown=false; SW.p1=null; SW.cur=null;
+  SW.active=false; SW.penDown=false; SW.p1=null; SW.cur=null; SW.purpose='subwindow';
 }
 
 SW.handleDown=function(sx,sy){
@@ -5938,13 +5943,19 @@ SW.handleUp=function(sx,sy){
     x1:Math.min(p1.x,p2.x), y1:Math.min(p1.y,p2.y),
     x2:Math.max(p1.x,p2.x), y2:Math.max(p1.y,p2.y)
   };
+  var _purpose238=SW.purpose; // V2_38: resetSW()で'subwindow'に戻る前に確保しておく
   resetSW();
   if(typeof _swUpdateBtnUI==='function')_swUpdateBtnUI(false);
   scheduleOverlay();
   // V0_153.1: M_Viewer踏襲。画面上5px相当をワールド座標の最小サイズ閾値とする
   var minWorld=5/Math.max(scale,1e-6);
   if((rectWorld.x2-rectWorld.x1)>minWorld&&(rectWorld.y2-rectWorld.y1)>minWorld){
-    createSubWindow(rectWorld); // 上限チェック(2個まで)はcreateSubWindow内で実施
+    // V2_38: 「範囲指定書出」中に確定した場合は、サブ窓を作らずHD-PDF書出へ渡す
+    if(_purpose238==='hdpdf'){
+      if(typeof exportHybridPDF==='function') exportHybridPDF(null,rectWorld);
+    }else{
+      createSubWindow(rectWorld); // 上限チェック(2個まで)はcreateSubWindow内で実施
+    }
   }else{
     showGuide('範囲が小さすぎます',1200);
   }
@@ -6009,9 +6020,12 @@ function drawSWOverlay(){
     var rw=Math.abs(p2s[0]-p1s[0]), rh=Math.abs(p2s[1]-p1s[1]);
     octx.save();
     octx.scale(dpr,dpr); // 本家drawOverlay()と同じdprスケールを適用してから描画する
-    octx.strokeStyle='#4ecdc4';octx.lineWidth=1.5;octx.setLineDash([6,4]);
+    // V2_38: 「範囲指定書出」中(purpose='hdpdf')は、サブ窓作成と見分けがつくよう
+    // 色を変える(黄系)。サブ窓作成時の見た目は一切変更しない
+    var _isHdPdf238=(SW.purpose==='hdpdf');
+    octx.strokeStyle=_isHdPdf238?'#f1c40f':'#4ecdc4';octx.lineWidth=1.5;octx.setLineDash([6,4]);
     octx.strokeRect(rx,ry,rw,rh);
-    octx.fillStyle='rgba(78,205,196,.08)';
+    octx.fillStyle=_isHdPdf238?'rgba(241,196,15,.10)':'rgba(78,205,196,.08)';
     octx.fillRect(rx,ry,rw,rh);
     octx.restore();
   }
